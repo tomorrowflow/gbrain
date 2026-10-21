@@ -37,6 +37,8 @@ if (!IMESSAGE_SLACK) {
 }
 /** The one transcript anchor regex — imported from the parser, never re-declared. */
 export const MESSAGE_ANCHOR_RE: RegExp = IMESSAGE_SLACK.regex;
+/** Stamped as `transcript_import.line_format` so the parser never has to guess. */
+export const TRANSCRIPT_LINE_FORMAT: string = IMESSAGE_SLACK.id;
 
 /** Date-heading shapes some builtins treat as day boundaries. */
 const DATE_HEADING_RE = /^#{1,6}\s*\d{4}-\d{2}-\d{2}\b/;

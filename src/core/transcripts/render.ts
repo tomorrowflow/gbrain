@@ -61,7 +61,7 @@ import { buildTranscriptSlug, transcriptFullId, utcTimestamp } from './types.ts'
 
 // ── Shared line format (imessage-slack builtin; escaping lives in outside-content.ts) ──
 
-export { escapeAnchorLines, MESSAGE_ANCHOR_RE } from '../outside-content.ts';
+export { escapeAnchorLines, MESSAGE_ANCHOR_RE, TRANSCRIPT_LINE_FORMAT } from '../outside-content.ts';
 
 /**
  * The part size sessions were split at before Wave B (#5427 set it under the
@@ -461,6 +461,7 @@ export function renderSessionParts(
         ...(opts.provider !== undefined ? { format: meta.harness } : {}),
         session_id: meta.sessionId,
         version: TRANSCRIPT_IMPORT_VERSION,
+        line_format: TRANSCRIPT_LINE_FORMAT,
         part,
         ...(single ? { of: 1 } : { part_bytes: partTargetBytes }),
         ...(imperatives > 0 ? { imperatives_flagged: imperatives } : {}),

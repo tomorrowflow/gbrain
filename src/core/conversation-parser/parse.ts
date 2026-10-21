@@ -87,6 +87,26 @@ function priorityOf(id: string): number {
 }
 
 /**
+ * The line format a page declares it was written in, resolved against the
+ * candidate pool, or null when the page declares none (scoring decides).
+ * The transcripts importer renders every page in `imessage-slack` and names
+ * it in `transcript_import.line_format`; pages imported before that field
+ * existed carry `transcript_import` alone and were rendered the same way.
+ * Scoring cannot be trusted on those pages: assistant turns full of
+ * `**Label:** value` lines outscore the real anchors under
+ * `bold-name-no-time`, and every label becomes a speaker.
+ */
+export function declaredLineFormat(
+  frontmatter: Record<string, unknown> | undefined,
+  pool: readonly PatternEntry[],
+): PatternEntry | null {
+  const ti = frontmatter?.transcript_import;
+  if (!ti || typeof ti !== 'object') return null;
+  const declared = (ti as { line_format?: unknown }).line_format ?? 'imessage-slack';
+  return pool.find((p) => p.id === declared) ?? null;
+}
+
+/**
  * Derive the date+timezone context for a Page per D8 precedence.
  *
  *   1. opts.fallbackDate (caller's explicit ISO date)
@@ -909,7 +929,10 @@ export function parseConversation(
     return { messages: [], phase: 'no_match' };
   }
 
-  let scored = headScores(body, candidates);
+  const declared = declaredLineFormat(opts.page?.frontmatter, builtinPool);
+  let scored = declared
+    ? [{ entry: declared, score: scorePatternFull(body, declared), priority: priorityOf(declared.id) }]
+    : headScores(body, candidates);
 
   // REGRESSION (closes #1533 + Codex P1 #1): meeting pages have
   // ## Summary + blockquote + ## Transcript ahead of the chat. The
@@ -921,8 +944,8 @@ export function parseConversation(
   // 10 head lines matched"; chat-only pages still score 1.0 and skip
   // the fallback. Re-score every candidate against the full body,
   // pre-splitting ONCE to avoid 12 redundant body splits.
-  let fullBodyScored = false;
-  if (scored[0].score < SCORING_HEAD_TRIGGER_THRESHOLD) {
+  let fullBodyScored = declared !== null;
+  if (!declared && scored[0].score < SCORING_HEAD_TRIGGER_THRESHOLD) {
     const allLines = getNonBlankLines(body);
     scored = candidates.map((entry) => ({
       entry,
@@ -958,12 +981,13 @@ export function parseConversation(
   // one stray `**Name** (date time):` line scores ~1/300 ≈ 0.003 —
   // below the 5% floor we stay no_match instead of returning a
   // 1-message false positive. Real transcript pages typically score
-  // 0.5+ and sail through.
+  // 0.5+ and sail through. A declared format is a conversation by
+  // construction, so one anchor is enough.
   // Structure gate (N12-1): enough turns with every speaker distinct is a
   // list of labels, not a conversation.
   type Attempt = { rejected: 'below_floor' | 'label_list' } | { entry: PatternEntry; messages: MatchedMessage[]; diag: { unrecognized_headings: string[]; date_fallback_count: number } };
   const attempt = (entry: PatternEntry, score: number): Attempt => {
-    if (score < SCORING_MIN_ACCEPTANCE) return { rejected: 'below_floor' as const };
+    if (entry === declared ? score === 0 : score < SCORING_MIN_ACCEPTANCE) return { rejected: 'below_floor' as const };
     const diag = { unrecognized_headings: [] as string[], date_fallback_count: 0 };
     const messages = applyPattern(body, entry, dateCtx, diag);
     const minTurns = entry.repeat_speaker_min_turns;
