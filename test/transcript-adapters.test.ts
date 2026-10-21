@@ -55,6 +55,7 @@ import { withEnv } from './helpers/with-env.ts';
 
 const CHATGPT_FIXTURE = join(import.meta.dir, 'fixtures', 'transcripts', 'chatgpt-conversations.json');
 const CLAUDE_EXPORT_FIXTURE = join(import.meta.dir, 'fixtures', 'transcripts', 'claude-export.json');
+const CLAUDE_EXPORT_BRANCHES_FIXTURE = join(import.meta.dir, 'fixtures', 'transcripts', 'claude-export-branches.json');
 
 const FIXTURE = join(import.meta.dir, 'fixtures', 'conversation-formats', 'claude-code.jsonl');
 const CODEX_FIXTURE = join(import.meta.dir, 'fixtures', 'transcripts', 'codex-rollout.jsonl');
@@ -1089,6 +1090,41 @@ describe('claudeExportAdapter', () => {
     expect(s.messages.map((m) => m.role)).toEqual(['user', 'assistant']);
     expect(s.messages[0].timestamp).toBe('2026-08-07T12:00:05.000Z');
     expect(diag.sessions).toBe(1);
+  });
+
+  test('reply text comes from content text blocks: thinking and tool traffic never reach the page', async () => {
+    const { sessions } = await drain(claudeExportAdapter.parse(CLAUDE_EXPORT_BRANCHES_FIXTURE));
+    const active = sessions.find((s) => s.meta.sessionId === 'claude-conv-branches')!;
+    expect(active.messages[1].text).toBe('Here is the roadmap.\n\nPhase one ships the API.');
+    const all = sessions.flatMap((s) => s.messages.map((m) => m.text)).join('\n');
+    expect(all).not.toContain('SECRET REASONING');
+    expect(all).not.toContain('TOOL RESULT BODY');
+  });
+
+  test('active thread is the path to the newest leaf; long abandoned threads become alternate sessions', async () => {
+    const { sessions, diag } = await drain(claudeExportAdapter.parse(CLAUDE_EXPORT_BRANCHES_FIXTURE));
+    expect(sessions.map((s) => [s.meta.sessionId, s.meta.title])).toEqual([
+      ['claude-conv-branches', 'Widget roadmap'],
+      ['claude-conv-branches-alt1', 'Widget roadmap (alternate branch 1)'],
+      ['claude-conv-legacy', 'Legacy flat thread'],
+    ]);
+    expect(sessions[0].messages.map((m) => m.text)).toEqual([
+      'Draft the widget-co roadmap.',
+      'Here is the roadmap.\n\nPhase one ships the API.',
+      'Tighten phase one.',
+      'Phase one now ships the API and the CLI.',
+    ]);
+    expect(sessions[1].messages.map((m) => m.text)).toEqual([
+      'Edited opening: draft the acme-example roadmap instead.',
+      'Acme roadmap, first pass.',
+      'Add a hiring plan.',
+      'Hiring plan added.',
+    ]);
+    // The one-message retry is dropped, not interleaved and not its own session.
+    expect(sessions.flatMap((s) => s.messages.map((m) => m.text))).not.toContain('Retry answer that was abandoned.');
+    // Rows without parent links keep export order.
+    expect(sessions[2].messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+    expect(diag.sessions).toBe(3);
   });
 });
 

@@ -1,0 +1,206 @@
+[
+  {
+    "uuid": "claude-conv-branches",
+    "name": "Widget roadmap",
+    "summary": "",
+    "created_at": "2026-09-01T10:00:00.000000Z",
+    "updated_at": "2026-09-01T10:30:00.000000Z",
+    "account": {
+      "uuid": "acct"
+    },
+    "chat_messages": [
+      {
+        "uuid": "h1",
+        "parent_message_uuid": "00000000-0000-4000-8000-000000000000",
+        "sender": "human",
+        "created_at": "2026-09-01T10:00:00.000000Z",
+        "updated_at": "2026-09-01T10:00:00.000000Z",
+        "text": "Draft the widget-co roadmap.",
+        "content": [
+          {
+            "type": "text",
+            "text": "Draft the widget-co roadmap."
+          }
+        ],
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "a1",
+        "parent_message_uuid": "h1",
+        "sender": "assistant",
+        "created_at": "2026-09-01T10:01:00.000000Z",
+        "updated_at": "2026-09-01T10:01:00.000000Z",
+        "text": "SECRET REASONING: the user wants a roadmap\n\nHere is the roadmap.\n\nPhase one ships the API.",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "SECRET REASONING: the user wants a roadmap"
+          },
+          {
+            "type": "tool_use",
+            "name": "web_search",
+            "input": {
+              "query": "acme-example"
+            }
+          },
+          {
+            "type": "tool_result",
+            "content": [
+              {
+                "type": "text",
+                "text": "TOOL RESULT BODY"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "Here is the roadmap."
+          },
+          {
+            "type": "text",
+            "text": "Phase one ships the API."
+          }
+        ],
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "a1-retry",
+        "parent_message_uuid": "h1",
+        "sender": "assistant",
+        "created_at": "2026-09-01T10:02:00.000000Z",
+        "updated_at": "2026-09-01T10:02:00.000000Z",
+        "text": "Retry answer that was abandoned.",
+        "content": [
+          {
+            "type": "text",
+            "text": "Retry answer that was abandoned."
+          }
+        ],
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "e1",
+        "parent_message_uuid": "00000000-0000-4000-8000-000000000000",
+        "sender": "human",
+        "created_at": "2026-09-01T10:03:00.000000Z",
+        "updated_at": "2026-09-01T10:03:00.000000Z",
+        "text": "Edited opening: draft the acme-example roadmap instead.",
+        "content": [
+          {
+            "type": "text",
+            "text": "Edited opening: draft the acme-example roadmap instead."
+          }
+        ],
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "e2",
+        "parent_message_uuid": "e1",
+        "sender": "assistant",
+        "created_at": "2026-09-01T10:04:00.000000Z",
+        "updated_at": "2026-09-01T10:04:00.000000Z",
+        "text": "Acme roadmap, first pass.",
+        "content": [
+          {
+            "type": "text",
+            "text": "Acme roadmap, first pass."
+          }
+        ],
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "e3",
+        "parent_message_uuid": "e2",
+        "sender": "human",
+        "created_at": "2026-09-01T10:05:00.000000Z",
+        "updated_at": "2026-09-01T10:05:00.000000Z",
+        "text": "Add a hiring plan.",
+        "content": [
+          {
+            "type": "text",
+            "text": "Add a hiring plan."
+          }
+        ],
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "e4",
+        "parent_message_uuid": "e3",
+        "sender": "assistant",
+        "created_at": "2026-09-01T10:06:00.000000Z",
+        "updated_at": "2026-09-01T10:06:00.000000Z",
+        "text": "Hiring plan added.",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hiring plan added."
+          }
+        ],
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "h2",
+        "parent_message_uuid": "a1",
+        "sender": "human",
+        "created_at": "2026-09-01T10:20:00.000000Z",
+        "updated_at": "2026-09-01T10:20:00.000000Z",
+        "text": "Tighten phase one.",
+        "content": [
+          {
+            "type": "text",
+            "text": "Tighten phase one."
+          }
+        ],
+        "attachments": [],
+        "files": []
+      },
+      {
+        "uuid": "a2",
+        "parent_message_uuid": "h2",
+        "sender": "assistant",
+        "created_at": "2026-09-01T10:21:00.000000Z",
+        "updated_at": "2026-09-01T10:21:00.000000Z",
+        "text": "SECRET REASONING: tighten it\n\nPhase one now ships the API and the CLI.",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "SECRET REASONING: tighten it"
+          },
+          {
+            "type": "text",
+            "text": "Phase one now ships the API and the CLI."
+          }
+        ],
+        "attachments": [],
+        "files": []
+      }
+    ]
+  },
+  {
+    "uuid": "claude-conv-legacy",
+    "name": "Legacy flat thread",
+    "created_at": "2026-09-02T09:00:00.000Z",
+    "updated_at": "2026-09-02T09:05:00.000Z",
+    "chat_messages": [
+      {
+        "uuid": "l1",
+        "sender": "human",
+        "created_at": "2026-09-02T09:00:05.000Z",
+        "text": "First question."
+      },
+      {
+        "uuid": "l2",
+        "sender": "assistant",
+        "created_at": "2026-09-02T09:00:30.000Z",
+        "text": "First answer."
+      }
+    ]
+  }
+]
