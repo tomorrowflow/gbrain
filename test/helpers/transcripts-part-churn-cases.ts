@@ -327,7 +327,7 @@ export function defineTranscriptPartChurnCases(opts: { getEngine: () => BrainEng
         .toEqual({ pages: { imported: 1, skipped: 0, errored: 0, planned: 0, pending: 0 }, sessionsErrored: 0, partsDeleted: 0, cleanScan: true });
       const pages = await liveParts(engine, base);
       expect(pages.map(p => p.slug)).toEqual([base]);
-      expect(pages[0]!.frontmatter.transcript_import).toEqual({ harness: 'openclaw', session_id: id, version: 1, part: 1, of: 1 });
+      expect(pages[0]!.frontmatter.transcript_import).toEqual({ harness: 'openclaw', session_id: id, version: 1, line_format: 'imessage-slack', part: 1, of: 1 });
     }
   }), 180_000);
 
@@ -420,7 +420,7 @@ export function defineTranscriptPartChurnCases(opts: { getEngine: () => BrainEng
         .toEqual({ pages: { imported: 1, skipped: 0, errored: 0, planned: 0, pending: 0 }, partsDeleted: 0, sessionsErrored: 0 });
       const onePages = await liveParts(engine, baseSlugOf(one));
       expect(onePages.map(p => p.slug)).toEqual([baseSlugOf(one)]);
-      expect(onePages[0]!.frontmatter.transcript_import).toEqual({ harness: 'openclaw', session_id: one, version: 1, part: 1, of: 1 });
+      expect(onePages[0]!.frontmatter.transcript_import).toEqual({ harness: 'openclaw', session_id: one, version: 1, line_format: 'imessage-slack', part: 1, of: 1 });
 
       const grownSplit = await managedIngest(writeSession(dir, split, [{ text: splitText }, { text: 'small follow-up' }]));
       expect({ pages: grownSplit.pages, partsDeleted: grownSplit.partsDeleted, sessionsErrored: grownSplit.sessionsErrored })
@@ -447,7 +447,7 @@ export function defineTranscriptPartChurnCases(opts: { getEngine: () => BrainEng
       .toEqual({ pages: { imported: 1, skipped: 0, errored: 0, planned: 0, pending: 0 }, partsDeleted: 0, sessionsErrored: 0 });
     const pages = await liveParts(engine, base);
     expect(pages.map(p => p.slug)).toEqual([base]);
-    expect(pages[0]!.frontmatter.transcript_import).toEqual({ harness: 'openclaw', session_id: id, version: 1, part: 1, of: 1 });
+    expect(pages[0]!.frontmatter.transcript_import).toEqual({ harness: 'openclaw', session_id: id, version: 1, line_format: 'imessage-slack', part: 1, of: 1 });
     // The same squat at the session's own -p2 slug: part 1 is the importer's one page, so it stays one page and the stray part is reconciled away.
     // (The first squat goes first: the importer's identity dedup would skip a second page with the same id.)
     await engine.deletePage(squat, { sourceId: 'default' });

@@ -55,7 +55,7 @@ import type { DanglingForm } from '../secret-scan-labeled.ts';
 import { loadPatterns } from '../skillpack/harvest-lint.ts';
 import { sanitizeForJsonb } from '../batch-rows.ts';
 import { ensureWellFormed } from '../text-safe.ts';
-import { neutralizeOutsideText } from '../outside-content.ts';
+import { neutralizeOutsideText, TRANSCRIPT_LINE_FORMAT } from '../outside-content.ts';
 import type { ParsedSession, TranscriptMessage, TranscriptSessionMeta } from './types.ts';
 import { buildTranscriptSlug, transcriptFullId, utcTimestamp } from './types.ts';
 
