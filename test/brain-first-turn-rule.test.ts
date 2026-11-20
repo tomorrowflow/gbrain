@@ -16,7 +16,7 @@ import { brainFirstTurnRule, renderBrainFirstTurnRule, type BrainFirstAccess } f
 import { runHook } from '../src/commands/hook.ts';
 import { hermesTurnHookCommand, removeHermesTurnHook, syncHermesTurnHook } from '../src/core/setup/hermes-turn-hook.ts';
 import { inspectTurnHook } from '../src/core/setup/turn-hook-check.ts';
-import { OPENCLAW_TURN_PLUGIN_ID, openclawTurnPluginDir, removeOpenclawTurnPlugin, syncOpenclawTurnPlugin } from '../src/core/setup/openclaw-turn-plugin.ts';
+import { OPENCLAW_TURN_PLUGIN_ID, openclawTurnPluginDir, removeOpenclawTurnPlugin, skipInOpenclawTurnPlugin, syncOpenclawTurnPlugin } from '../src/core/setup/openclaw-turn-plugin.ts';
 
 const roots: string[] = [];
 afterAll(() => { for (const r of roots) rmSync(r, { recursive: true, force: true }); });
@@ -404,7 +404,7 @@ describe('per-turn rule: OpenClaw before_prompt_build plugin', () => {
     });
   });
 
-  test('a --workspace run leaves the gateway-shared plugin when it names another server, and never removes it', async () => {
+  test('a --workspace run leaves the gateway-shared plugin when it names another server', async () => {
     await withEnv({ OPENCLAW_STATE_DIR: state(), OPENCLAW_PROFILE: undefined }, async () => {
       syncOpenclawTurnPlugin({ access, dryRun: false, openclawBin: '/bin/openclaw', run: recorder().run });
       const index = readFileSync(join(openclawTurnPluginDir(), 'index.js'), 'utf8');
@@ -416,10 +416,51 @@ describe('per-turn rule: OpenClaw before_prompt_build plugin', () => {
       expect(readFileSync(join(openclawTurnPluginDir(), 'index.js'), 'utf8')).toBe(index);
       expect(rec.calls).toEqual([]);
       expect(syncOpenclawTurnPlugin({ access, workspace: '/ws/a', dryRun: false, openclawBin: '/bin/openclaw', run: recorder().run }).action).toBe('keep');
-      const kept = removeOpenclawTurnPlugin({ workspace: '/ws/a', dryRun: false, openclawBin: '/bin/openclaw', run: rec.run });
-      expect(kept.action).toBe('skip');
-      expect(rec.calls).toEqual([]);
+    });
+  });
+
+  test('a workspace opt-out rewrites the plugin, with the access it was written for, so that workspace and its agents get no rule', async () => {
+    await withEnv({ OPENCLAW_STATE_DIR: state(), OPENCLAW_PROFILE: undefined }, async () => {
+      const skip = { workspaces: ['/ws/dev'], agents: ['dev'] };
+      expect(skipInOpenclawTurnPlugin({ workspace: '/ws/dev', skip, dryRun: false, openclawBin: '/bin/openclaw', run: recorder().run }).action).toBe('skip');
+      expect(existsSync(openclawTurnPluginDir())).toBe(false);
+      syncOpenclawTurnPlugin({ access, dryRun: false, openclawBin: '/bin/openclaw', run: recorder().run });
+      const index = readFileSync(join(openclawTurnPluginDir(), 'index.js'), 'utf8');
+      const dry = recorder();
+      expect(skipInOpenclawTurnPlugin({ workspace: '/ws/dev', skip, dryRun: true, openclawBin: '/bin/openclaw', run: dry.run }).action).toBe('write');
+      expect(dry.calls).toEqual([]);
       expect(readFileSync(join(openclawTurnPluginDir(), 'index.js'), 'utf8')).toBe(index);
+      const rec = recorder();
+      const o = skipInOpenclawTurnPlugin({ workspace: '/ws/dev', skip, dryRun: false, openclawBin: '/bin/openclaw', run: rec.run });
+      expect(o.action).toBe('write');
+      expect(o.detail).toContain('skips agents dev and workspaces /ws/dev (opted out)');
+      expect(rec.calls).toHaveLength(3);
+      expect(JSON.parse(readFileSync(join(openclawTurnPluginDir(), 'package.json'), 'utf8')).gbrain).toEqual({ access, skip });
+      const mod = await import(`${join(openclawTurnPluginDir(), 'index.js')}?skip`);
+      const handlers: Record<string, (event?: unknown, ctx?: unknown) => unknown> = {};
+      mod.default.register({ on: (event: string, fn: (event?: unknown, ctx?: unknown) => unknown) => { handlers[event] = fn; } });
+      const full = { prependContext: renderBrainFirstTurnRule(access, 'openclaw') };
+      expect(handlers.before_prompt_build({}, { agentId: 'dev' })).toBeUndefined();
+      expect(handlers.before_prompt_build({}, { agentId: 'other', workspaceDir: '/ws/dev/' })).toBeUndefined();
+      expect(handlers.before_prompt_build({}, { agentId: 'main', workspaceDir: '/ws/main' })).toEqual(full);
+      expect(handlers.before_prompt_build({}, {})).toEqual(full);
+      expect(syncOpenclawTurnPlugin({ access, dryRun: false, openclawBin: '/bin/openclaw', run: recorder().run }).action).toBe('write');
+      expect(readFileSync(join(openclawTurnPluginDir(), 'index.js'), 'utf8')).toBe(index);
+    });
+  });
+
+  test('a workspace opt-out leaves a plugin that does not record its access, and names the re-run', async () => {
+    await withEnv({ OPENCLAW_STATE_DIR: state(), OPENCLAW_PROFILE: undefined }, async () => {
+      const dir = openclawTurnPluginDir();
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), '{}\n');
+      writeFileSync(join(dir, 'index.js'), `const RULE = ${JSON.stringify(renderBrainFirstTurnRule(access, 'openclaw'))};\n`);
+      const rec = recorder();
+      const o = skipInOpenclawTurnPlugin({ workspace: '/ws/dev', skip: { workspaces: ['/ws/dev'], agents: [] }, dryRun: false, openclawBin: '/bin/openclaw', run: rec.run });
+      expect(o.action).toBe('print');
+      expect(o.detail).toContain('cannot be rewritten to skip /ws/dev');
+      expect(rec.calls).toEqual([]);
+      expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe('{}\n');
     });
   });
 

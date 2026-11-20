@@ -13,12 +13,18 @@
  * `plugins.entries.gbrain-turn-rule.hooks.allowConversationAccess`, which
  * OpenClaw requires of a non-bundled plugin's `before_prompt_build`. With no
  * `openclaw` on PATH, setup writes the plugin and prints those commands.
+ *
+ * OpenClaw loads a plugin for the whole gateway, so per-agent opt-out lives in
+ * the plugin: the workspaces whose block was declined (`--no-instructions
+ * --workspace <dir>`, read from the instruction ledger) and the agents
+ * openclaw.json gives those workspaces are written into it, and a turn whose
+ * hook context names one of them gets no rule.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { atomicWriteTextFile } from '../bootstrap/atomic-write.ts';
 import { bunSpawnSync } from '../spawn.ts';
-import { openclawConfigPath, openclawStateDir, parseJson5ish, renderBrainFirstTurnRule, type BrainFirstAccess } from './brain-first.ts';
+import { expandHome, openclawConfigPath, openclawStateDir, parseJson5ish, readBrainFirstLedger, renderBrainFirstTurnRule, type BrainFirstAccess } from './brain-first.ts';
 
 export const OPENCLAW_TURN_PLUGIN_ID = 'gbrain-turn-rule';
 
@@ -40,23 +46,69 @@ export function openclawTurnPluginDir(): string {
   return join(openclawStateDir(), 'gbrain', OPENCLAW_TURN_PLUGIN_ID);
 }
 
+/** Agents and workspaces whose turns get no rule: the workspaces that opted out, and the agents configured with them. */
+export interface OpenclawTurnSkip { workspaces: string[]; agents: string[] }
+
+const NO_SKIP: OpenclawTurnSkip = { workspaces: [], agents: [] };
+const workspaceKey = (p: string) => resolve(expandHome(p.trim()));
+
+/** Each configured agent's explicit workspace (agents.list[] or agents.entries{}), normalized; agents with none are matched by workspaceDir only. */
+function openclawAgentWorkspaces(): [string, string][] {
+  try {
+    const cfg = parseJson5ish(readFileSync(openclawConfigPath(), 'utf8')) as { agents?: { list?: unknown; entries?: unknown } } | undefined;
+    const { list, entries } = cfg?.agents ?? {};
+    const rows: [unknown, unknown][] = Array.isArray(list)
+      ? list.map((a: { id?: unknown; workspace?: unknown } | null) => [a?.id, a?.workspace])
+      : entries && typeof entries === 'object'
+        ? Object.entries(entries as Record<string, { id?: unknown; workspace?: unknown } | null>).map(([id, a]) => [a?.id ?? id, a?.workspace])
+        : [];
+    return rows.filter((r): r is [string, string] => typeof r[0] === 'string' && typeof r[1] === 'string' && r[1].trim() !== '').map(([id, w]) => [id, workspaceKey(w)]);
+  } catch { return []; }
+}
+
+/**
+ * The plugin's skip list: every OpenClaw workspace the ledger records as declined, with `current` (this run's
+ * workspace and decision, which a dry run has not recorded) applied on top, plus the agents configured with them.
+ */
+export function openclawTurnSkip(current?: { workspace: string; declined: boolean }): OpenclawTurnSkip {
+  const workspaces = new Set(readBrainFirstLedger().filter((e) => e.harness === 'openclaw' && e.status === 'declined').map((e) => workspaceKey(dirname(e.path))));
+  if (current) {
+    const w = workspaceKey(current.workspace);
+    if (current.declined) workspaces.add(w); else workspaces.delete(w);
+  }
+  const agents = openclawAgentWorkspaces().filter(([, w]) => workspaces.has(w)).map(([id]) => id);
+  return { workspaces: [...workspaces].sort(), agents: [...new Set(agents)].sort() };
+}
+
+const describeSkip = (skip: OpenclawTurnSkip) => (skip.workspaces.length === 0 ? '' : `; skips ${skip.agents.length > 0 ? `agents ${skip.agents.join(', ')} and ` : ''}workspaces ${skip.workspaces.join(', ')} (opted out)`);
+
 const DESCRIPTION = 'Puts the GBrain brain-first rule next to every user turn (managed by gbrain setup openclaw).';
 
-export function openclawTurnPluginFiles(access: BrainFirstAccess): Record<string, string> {
+export function openclawTurnPluginFiles(access: BrainFirstAccess, skip: OpenclawTurnSkip = NO_SKIP): Record<string, string> {
   const rule = renderBrainFirstTurnRule(access, 'openclaw');
+  const skips = skip.workspaces.length > 0 || skip.agents.length > 0;
+  const prepend = "{ prependContext: ctx?.inputProvenance?.kind === 'internal_system' ? INTERNAL_RULE : RULE }";
   return {
-    'package.json': `${JSON.stringify({ name: OPENCLAW_TURN_PLUGIN_ID, version: '1.0.0', private: true, type: 'module', openclaw: { extensions: ['./index.js'] }, gbrain: { access } }, null, 2)}\n`,
+    'package.json': `${JSON.stringify({ name: OPENCLAW_TURN_PLUGIN_ID, version: '1.0.0', private: true, type: 'module', openclaw: { extensions: ['./index.js'] }, gbrain: { access, ...(skips ? { skip } : {}) } }, null, 2)}\n`,
     'openclaw.plugin.json': `${JSON.stringify({ id: OPENCLAW_TURN_PLUGIN_ID, name: 'GBrain turn rule', description: DESCRIPTION, configSchema: { type: 'object', additionalProperties: false } }, null, 2)}\n`,
     'index.js': [
       '// Managed by gbrain setup openclaw; a re-run rewrites this file. Remove: gbrain setup openclaw --remove',
       `const RULE = ${JSON.stringify(rule)};`,
       `const INTERNAL_RULE = ${JSON.stringify(renderBrainFirstTurnRule(access, 'openclaw', { reply: false }))};`,
+      ...(skips ? [
+        '// Opted out with gbrain setup openclaw --instructions-only --no-instructions --workspace <dir>: their turns get no rule.',
+        `const SKIP_AGENTS = new Set(${JSON.stringify(skip.agents)});`,
+        `const SKIP_WORKSPACES = new Set(${JSON.stringify(skip.workspaces)});`,
+        "const skipped = (ctx) => SKIP_AGENTS.has(ctx?.agentId) || SKIP_WORKSPACES.has(String(ctx?.workspaceDir ?? '').replace(/\\/+$/, ''));",
+      ] : []),
       'export default {',
       `  id: ${JSON.stringify(OPENCLAW_TURN_PLUGIN_ID)},`,
       "  name: 'GBrain turn rule',",
       `  description: ${JSON.stringify(DESCRIPTION)},`,
       '  register(api) {',
-      "    api.on('before_prompt_build', (_event, ctx) => ({ prependContext: ctx?.inputProvenance?.kind === 'internal_system' ? INTERNAL_RULE : RULE }));",
+      skips
+        ? `    api.on('before_prompt_build', (_event, ctx) => (skipped(ctx) ? undefined : ${prepend}));`
+        : `    api.on('before_prompt_build', (_event, ctx) => (${prepend}));`,
       '  },',
       '};',
       '',
@@ -110,7 +162,7 @@ const named = (a: BrainFirstAccess) => (a.kind === 'mcp' ? `the \`${a.server}\` 
  * the plugin's rule, so a `workspace`-scoped run leaves an installed plugin whose rule would name another server (or
  * one it cannot read) and prints, unverified, the command that changes it for every agent.
  */
-export function syncOpenclawTurnPlugin(opts: { access: BrainFirstAccess; dryRun: boolean; workspace?: string; openclawBin?: string | null; run?: Run }): OpenclawTurnPluginOutcome {
+export function syncOpenclawTurnPlugin(opts: { access: BrainFirstAccess; skip?: OpenclawTurnSkip; dryRun: boolean; workspace?: string; openclawBin?: string | null; run?: Run }): OpenclawTurnPluginOutcome {
   const dir = openclawTurnPluginDir();
   const installed = opts.workspace ? installedAccess(dir) : undefined;
   const same = installed && (installed.recorded
@@ -119,13 +171,14 @@ export function syncOpenclawTurnPlugin(opts: { access: BrainFirstAccess; dryRun:
   if (installed !== undefined && !same) {
     return { action: 'print', path: dir, detail: `${dir} left as it is: every agent on this OpenClaw gateway gets its rule, which ${installed ? `names ${named(installed.access)}` : 'gbrain cannot read'}, so a --workspace run does not rewrite it. To change it for every agent, run this, then this setup again`, commands: [`gbrain setup openclaw --remove --workspace ${opts.workspace}`] };
   }
-  const files = openclawTurnPluginFiles(opts.access);
+  const skip = opts.skip ?? NO_SKIP;
+  const files = openclawTurnPluginFiles(opts.access, skip);
   const bin = opts.openclawBin !== undefined ? opts.openclawBin : findOpenclaw();
   const commands = installArgv(bin ?? 'openclaw', dir);
   const changed = Object.entries(files).some(([name, text]) => {
     try { return readFileSync(join(dir, name), 'utf8') !== text; } catch { return true; }
   });
-  if (opts.dryRun) return { action: changed ? 'write' : 'keep', path: dir, detail: `per-turn rule plugin ${OPENCLAW_TURN_PLUGIN_ID} (before_prompt_build) at ${dir}${bin ? ', installed with the openclaw CLI' : ''}` };
+  if (opts.dryRun) return { action: changed ? 'write' : 'keep', path: dir, detail: `per-turn rule plugin ${OPENCLAW_TURN_PLUGIN_ID} (before_prompt_build) at ${dir}${bin ? ', installed with the openclaw CLI' : ''}${describeSkip(skip)}` };
   try {
     if (changed) {
       mkdirSync(dir, { recursive: true });
@@ -134,14 +187,28 @@ export function syncOpenclawTurnPlugin(opts: { access: BrainFirstAccess; dryRun:
   } catch (e) {
     return { action: 'print', path: dir, detail: `the plugin could not be written to ${dir} (${(e as Error).message})` };
   }
-  if (!changed && openclawPluginRegistered(OPENCLAW_TURN_PLUGIN_ID, dir)) return { action: 'keep', path: dir, detail: `per-turn rule plugin ${OPENCLAW_TURN_PLUGIN_ID} (before_prompt_build) at ${dir}, already installed, enabled and allowed in OpenClaw, so no openclaw command ran`, unchanged: true };
+  if (!changed && openclawPluginRegistered(OPENCLAW_TURN_PLUGIN_ID, dir)) return { action: 'keep', path: dir, detail: `per-turn rule plugin ${OPENCLAW_TURN_PLUGIN_ID} (before_prompt_build) at ${dir}, already installed, enabled and allowed in OpenClaw, so no openclaw command ran${describeSkip(skip)}`, unchanged: true };
   if (!bin) return { action: 'print', path: dir, detail: `plugin written to ${dir}; no openclaw on PATH, so run these on the OpenClaw host, then restart the gateway`, commands: commands.map(shown) };
   const run = opts.run ?? runOpenclawCli;
   for (const [i, argv] of commands.entries()) {
     const r = run(argv);
     if (!r.ok) return { action: 'print', path: dir, detail: `\`${shown(argv)}\` failed (${r.output.split('\n').at(-1) ?? 'no output'}); run the rest yourself`, commands: commands.slice(i).map(shown) };
   }
-  return { action: changed ? 'write' : 'keep', path: dir, detail: `per-turn rule plugin ${OPENCLAW_TURN_PLUGIN_ID} (before_prompt_build) at ${dir}, installed and enabled; restart the gateway if it is running` };
+  return { action: changed ? 'write' : 'keep', path: dir, detail: `per-turn rule plugin ${OPENCLAW_TURN_PLUGIN_ID} (before_prompt_build) at ${dir}, installed and enabled${describeSkip(skip)}; restart the gateway if it is running` };
+}
+
+/**
+ * One workspace's opt-out (`--no-instructions --workspace <dir>`): the plugin is gateway-wide, so it stays and is
+ * rewritten, with the access it was written for, to skip that workspace's turns. Never throws.
+ */
+export function skipInOpenclawTurnPlugin(opts: { workspace: string; skip: OpenclawTurnSkip; dryRun: boolean; openclawBin?: string | null; run?: Run }): OpenclawTurnPluginOutcome {
+  const dir = openclawTurnPluginDir();
+  const installed = installedAccess(dir);
+  if (installed === undefined) return { action: 'skip', path: dir, detail: `no per-turn rule plugin at ${dir}` };
+  if (!installed?.recorded) {
+    return { action: 'print', path: dir, detail: `${dir} left as it is: it does not record the access it was written for, so it cannot be rewritten to skip ${opts.workspace}. Re-run setup for a workspace that uses gbrain, then this again`, commands: ['gbrain setup openclaw --instructions-only --workspace <a workspace that uses gbrain>'] };
+  }
+  return syncOpenclawTurnPlugin({ access: installed.access, skip: opts.skip, dryRun: opts.dryRun, workspace: opts.workspace, openclawBin: opts.openclawBin, run: opts.run });
 }
 
 /**
@@ -149,10 +216,9 @@ export function syncOpenclawTurnPlugin(opts: { access: BrainFirstAccess; dryRun:
  * until the uninstall succeeds: `install --link` put it in plugins.load.paths, and OpenClaw refuses a config
  * whose load path is missing.
  */
-export function removeOpenclawTurnPlugin(opts: { dryRun: boolean; workspace?: string; openclawBin?: string | null; run?: Run }): OpenclawTurnPluginOutcome {
+export function removeOpenclawTurnPlugin(opts: { dryRun: boolean; openclawBin?: string | null; run?: Run }): OpenclawTurnPluginOutcome {
   const dir = openclawTurnPluginDir();
   if (!existsSync(dir)) return { action: 'skip', path: dir, detail: `no per-turn rule plugin at ${dir}` };
-  if (opts.workspace) return { action: 'skip', path: dir, detail: `${dir} left in place: every agent on this OpenClaw gateway gets its rule, so opting out one workspace does not remove it. Remove it for every agent with gbrain setup openclaw --remove --workspace ${opts.workspace}` };
   if (opts.dryRun) return { action: 'remove', path: dir, detail: `per-turn rule plugin ${OPENCLAW_TURN_PLUGIN_ID} at ${dir}` };
   const bin = opts.openclawBin !== undefined ? opts.openclawBin : findOpenclaw();
   const uninstall = [bin ?? 'openclaw', 'plugins', 'uninstall', OPENCLAW_TURN_PLUGIN_ID, '--force'];

@@ -295,7 +295,7 @@ describe('brain-first block: placement rules', () => {
     return { PATH: `${join(b.root, 'bin')}:${process.env.PATH ?? ''}` };
   }
 
-  test('openclaw --workspace: the gateway-shared plugin is not rewritten for another server name or removed by one workspace opting out', async () => {
+  test('openclaw --workspace: the gateway-shared plugin is not rewritten for another server name; a workspace opt-out makes it skip that workspace and its agent', async () => {
     const b = box();
     mkdirSync(join(b.home, '.openclaw', 'workspace'), { recursive: true });
     const path = fakeOpenclaw(b);
@@ -305,18 +305,35 @@ describe('brain-first block: placement rules', () => {
     expect(first.doc.turn_hook_check.ok).toBe(true);
     const index = read(join(dir, 'index.js'));
     const ws = join(b.home, 'ws-a');
+    const cfg = join(b.home, '.openclaw', 'openclaw.json');
+    // The fake CLI's `config set` rewrites openclaw.json, so the agent roster goes back in before each run that reads it.
+    const withAgents = () => writeFileSync(cfg, JSON.stringify({ ...JSON.parse(read(cfg)), agents: { entries: { main: { workspace: join(b.home, '.openclaw', 'workspace') }, alpha: { workspace: '~/ws-a/' } } } }));
     mkdirSync(ws);
     const renamed = await setup(b, ['openclaw', '--workspace', ws, '--name', 'gbrain-a', '--instructions-only'], path);
     expect(renamed.exitCode).toBe(0);
     expect(renamed.doc.turn_hook.action).toBe('print');
     expect(renamed.doc.turn_hook.commands).toEqual([`gbrain setup openclaw --remove --workspace ${ws}`]);
     expect(read(join(dir, 'index.js'))).toBe(index);
+    withAgents();
     const declined = await setup(b, ['openclaw', '--workspace', ws, '--no-instructions'], path);
     expect(declined.exitCode).toBe(0);
     expect(declined.doc.instructions.action).toBe('remove');
-    expect(declined.doc.turn_hook.action).toBe('skip');
-    expect(read(join(dir, 'index.js'))).toBe(index);
+    expect(declined.doc.turn_hook.action).toBe('write');
+    expect(JSON.parse(read(join(dir, 'package.json'))).gbrain.skip).toEqual({ workspaces: [ws], agents: ['alpha'] });
     expect(read(join(b.home, '.openclaw', 'workspace', 'AGENTS.md'))).toContain(BRAIN_FIRST_BEGIN);
+    withAgents();
+    const rerun = await setup(b, ['openclaw', '--workspace', join(b.home, '.openclaw', 'workspace'), '--instructions-only'], path);
+    expect(rerun.doc.turn_hook.action).toBe('keep');
+    expect(JSON.parse(read(join(dir, 'package.json'))).gbrain.skip).toEqual({ workspaces: [ws], agents: ['alpha'] });
+    const other = join(b.home, 'ws-b');
+    mkdirSync(other);
+    const fresh = await setup(b, ['openclaw', '--workspace', other, '--instructions-only'], path);
+    expect(fresh.doc.instructions.decision).toEqual({ value: 'accepted', source: 'default' });
+    expect(read(join(other, 'AGENTS.md'))).toContain(BRAIN_FIRST_BEGIN);
+    expect(JSON.parse(read(join(dir, 'package.json'))).gbrain.skip.workspaces).toEqual([ws]);
+    const back = await setup(b, ['openclaw', '--workspace', ws, '--instructions'], path);
+    expect(back.exitCode).toBe(0);
+    expect(read(join(dir, 'index.js'))).toBe(index);
   });
 
   test('openclaw --workspace on a disabled plugin an older gbrain wrote: another server exits 0 with the way out, the same server rewrites and enables it', async () => {

@@ -26,7 +26,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { removeHermesTurnHook, syncHermesTurnHook } from '../core/setup/hermes-turn-hook.ts';
 import { hermesMcpStep } from './setup-hermes-mcp.ts';
-import { removeOpenclawTurnPlugin, syncOpenclawTurnPlugin } from '../core/setup/openclaw-turn-plugin.ts';
+import { openclawTurnSkip, removeOpenclawTurnPlugin, skipInOpenclawTurnPlugin, syncOpenclawTurnPlugin } from '../core/setup/openclaw-turn-plugin.ts';
 import { describeOpenclawSkill, operatorRuleProblem, readOpenclawSkillState, removeOpenclawSkillPlugin, syncOpenclawSkillPlugin, type OpenclawSkillResult, type OpenclawSkillTuning } from '../core/setup/openclaw-skill-plugin.ts';
 import { describePiSkill, readPiSkillState, removePiSkillExtension, syncPiSkillExtension } from '../core/setup/pi-skill-extension.ts';
 import { hasTurnRuleHook, isTurnRuleHarness, removeTurnRuleHook, syncTurnRuleHook, type TurnHookOutcome, type TurnRuleHarness } from '../core/setup/turn-hook.ts';
@@ -1165,6 +1165,18 @@ function openclawStarterEntry(name: string): { path: string; detail: string; fro
  * block and nothing else. A client with no instruction file gbrain can write
  * (Claude Desktop, ChatGPT, …) gets the block printed to paste.
  */
+/**
+ * OpenClaw's gateway-wide turn plugin after this run: --remove uninstalls it; a --workspace opt-out rewrites it to skip
+ * that workspace (and its agents); an opt-out with no --workspace (the single-agent case) removes it; an install
+ * writes it with every recorded opt-out skipped.
+ */
+function openclawTurnPluginFor(flags: SetupFlags, access: BrainFirstAccess, off: boolean) {
+  if (flags.remove) return removeOpenclawTurnPlugin({ dryRun: flags.dryRun });
+  const skip = openclawTurnSkip(flags.workspace ? { workspace: flags.workspace, declined: off } : undefined);
+  if (!off) return syncOpenclawTurnPlugin({ access, skip, dryRun: flags.dryRun, workspace: flags.workspace });
+  return flags.workspace ? skipInOpenclawTurnPlugin({ workspace: flags.workspace, skip, dryRun: flags.dryRun }) : removeOpenclawTurnPlugin({ dryRun: flags.dryRun });
+}
+
 async function runInstructionsOnly(flags: SetupFlags, out: Out): Promise<number> {
   const harness = flags.harness!;
   const adapter = HARNESS_ADAPTERS.find((a) => a.id === harness)!;
@@ -1219,7 +1231,7 @@ async function runInstructionsOnly(flags: SetupFlags, out: Out): Promise<number>
   const turnHook = !off && !placed ? null : harness === 'hermes'
     ? (off ? removeHermesTurnHook({ hermesHome: dirname(target.path), dryRun: flags.dryRun }) : syncHermesTurnHook({ hermesHome: dirname(target.path), access, dryRun: flags.dryRun }))
     : harness === 'openclaw'
-      ? (off ? removeOpenclawTurnPlugin({ dryRun: flags.dryRun, workspace: flags.remove ? undefined : flags.workspace }) : syncOpenclawTurnPlugin({ access, dryRun: flags.dryRun, workspace: flags.workspace }))
+      ? openclawTurnPluginFor(flags, access, off)
       : isTurnRuleHarness(harness) ? turnRuleHookFor(harness, off, flags, projectDir, rerun.join(' ')) : null;
   // Loud failure: an accepted install whose per-turn hook does not load exits non-zero and names the harness's own check.
   // A 'print' outcome installed nothing and already names the step that does, so it is reported, not verified.

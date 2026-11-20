@@ -372,10 +372,25 @@ openclaw config set plugins.entries.gbrain-turn-rule.hooks.allowConversationAcce
 OpenClaw requires `allowConversationAccess` before a non-bundled plugin's
 `before_prompt_build` runs. With no `openclaw` on PATH, setup writes the plugin
 and prints those commands to run on the OpenClaw host; restart a running gateway
-afterwards. `--no-instructions` and `--remove` uninstall the plugin and delete
-its directory. A re-run after an upgrade rewrites the plugin with the new text.
-Every agent on the gateway gets the plugin's rule, so a `--workspace` run leaves
-it when it would name another server and `--no-instructions` there keeps it.
+afterwards. `--remove`, and `--no-instructions` without `--workspace`, uninstall
+the plugin and delete its directory. A re-run after an upgrade rewrites the plugin
+with the new text. OpenClaw loads a plugin for the whole gateway, so a
+`--workspace` run leaves it when it would name another server.
+
+Opting out one agent of several works per workspace:
+
+```bash
+gbrain setup openclaw --instructions-only --no-instructions --workspace ~/.openclaw/workspace-<agent>
+```
+
+This removes the block from that workspace's AGENTS.md and rewrites the plugin
+to skip that workspace's turns. Setup writes every opted-out workspace into the
+plugin, together with the agents whose `workspace` in openclaw.json is one of
+them. The plugin gives no rule to a turn whose hook context names one of those
+agents (`agentId`) or workspaces (`workspaceDir`). Opt back in with
+`--instructions --workspace <dir>`. Restart the gateway after either change. An
+agent with no `workspace` key in openclaw.json is matched by its workspace
+path only, so give it one when it runs sandboxed.
 
 OpenClaw lists no gbrain tool after `openclaw mcp set`: the model reaches them
 only through `tool_search`, whose results it frames as external data. With an

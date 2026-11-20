@@ -158,7 +158,7 @@ export interface BrainFirstTarget {
 }
 
 function home(): string { return process.env.HOME?.trim() || homedir(); }
-function expandHome(p: string): string { return p === '~' ? home() : p.startsWith('~/') ? join(home(), p.slice(2)) : p; }
+export function expandHome(p: string): string { return p === '~' ? home() : p.startsWith('~/') ? join(home(), p.slice(2)) : p; }
 
 /**
  * The global file Codex actually loads: AGENTS.override.md when it exists
@@ -349,10 +349,15 @@ function dropLedger(harness: string, path: string): void {
   if (rest.length !== all.length) writeLedger(rest);
 }
 
-/** The record for this surface; failing that, an opt-out recorded for the same harness at another path (the target moved), so an opt-out survives the move. */
+/**
+ * The record for this surface; failing that, an opt-out recorded for the same harness at another path (the target
+ * moved), so an opt-out survives the move. OpenClaw has no such fallback: each workspace belongs to its own agent, and
+ * one agent's opt-out must not decline another's (or drop its per-turn rule).
+ */
 export function priorBrainFirst(harness: string, path: string): BrainFirstLedgerEntry | undefined {
   const all = readBrainFirstLedger();
-  return all.find((e) => e.harness === harness && e.path === path) ?? all.find((e) => e.harness === harness && e.status === 'declined');
+  const own = all.find((e) => e.harness === harness && e.path === path);
+  return own ?? (harness === 'openclaw' ? undefined : all.find((e) => e.harness === harness && e.status === 'declined'));
 }
 
 // ── Decision, inspection, sync, removal ───────────────────────────────────
