@@ -123,7 +123,7 @@ describe('transcript provider provenance', () => {
       frontmatter: { id: 'claude-export-bc0aa6c8b6bf892c-p1' },
     });
     expect(page!.frontmatter.transcript_import).toEqual({
-      harness: 'claude-export', session_id: 'claude-conv-0001', version: 1, part: 1, of: 1,
+      harness: 'claude-export', session_id: 'claude-conv-0001', version: 1, part: 1, of: 1, line_format: 'imessage-slack',
     });
     expect(page!.compiled_truth).toContain('**User** (2026-08-07 12:00 PM): Review the acme-seed memo intro paragraph.');
   });
